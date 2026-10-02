@@ -125,6 +125,18 @@
         return raw ? '[LAMPA] ' + raw : ''
     }
 
+    function lampaMovieTitle(movie, fallback) {
+        const local = String(movie && (movie.title || movie.name) || '').trim()
+        const original = String(movie && (movie.original_title || movie.original_name) || '').trim()
+        const parts = []
+
+        if (local) parts.push(local)
+        if (original && normalizedString(original) !== normalizedString(local)) parts.push(original)
+
+        const raw = parts.join(' / ') || String(fallback || '').replace(/^\[LAMPA\]\s*/i, '').trim()
+        return raw ? '[LAMPA] ' + raw : ''
+    }
+
 
     function normalizeIdentityUrl(value) {
         if (!value) return ''
@@ -282,10 +294,10 @@
         }
     }
 
-    function hydrateMovie(movie) {
+    function hydrateMovie(movie, force) {
         const L = lampa()
         if (!movie || !movie.id || !isTv(movie)) return Promise.reject(new Error('Not a TV card'))
-        if (Array.isArray(movie.genres)) return Promise.resolve(movie)
+        if (!force && Array.isArray(movie.genres)) return Promise.resolve(movie)
 
         const tmdb = L && L.Api && L.Api.sources && L.Api.sources.tmdb
         const source = tmdb && typeof tmdb.get === 'function' ? tmdb : (L && L.TMDB)
@@ -302,6 +314,6 @@
                     }
                 } catch (_) {}
                 resolve(merged)
-            }, reject, { life: 60 * 24 })
+            }, reject, force ? false : { life: 60 * 24 })
         })
     }
