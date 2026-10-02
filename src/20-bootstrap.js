@@ -19,8 +19,8 @@
         return !at || Date.now() - at > 24 * 60 * 60 * 1000
     }
 
-    async function bootstrapFollow(hash, movie, files) {
-        if (runtime.bootstrapping.has(hash) || !bootstrapDue(hash)) return null
+    async function bootstrapFollow(hash, movie, files, force) {
+        if (runtime.bootstrapping.has(hash) || (!force && !bootstrapDue(hash))) return null
         runtime.bootstrapping.add(hash)
         setBootstrapAttempt(hash)
 
