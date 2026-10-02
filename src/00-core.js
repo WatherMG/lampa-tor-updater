@@ -93,6 +93,39 @@
         return String(value || '').trim().toLowerCase()
     }
 
+    function isPlainObject(value) {
+        return !!value && typeof value === 'object' && !Array.isArray(value)
+    }
+
+    function isMissingMetadata(value) {
+        return value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)
+    }
+
+    function mergeMissingMetadata(base, incoming) {
+        if (!isPlainObject(base)) return isMissingMetadata(base) ? clone(incoming) : clone(base)
+        const out = clone(base) || {}
+        if (!isPlainObject(incoming)) return out
+
+        Object.keys(incoming).forEach((key) => {
+            const next = incoming[key]
+            const current = out[key]
+
+            if (isPlainObject(current) && isPlainObject(next)) {
+                out[key] = mergeMissingMetadata(current, next)
+            } else if (isMissingMetadata(current) && !isMissingMetadata(next)) {
+                out[key] = clone(next)
+            }
+        })
+
+        return out
+    }
+
+    function lampaTorrentTitle(candidate, fallback) {
+        const raw = String(candidate && (candidate.Title || candidate.title) || fallback || '').replace(/^\[LAMPA\]\s*/i, '').trim()
+        return raw ? '[LAMPA] ' + raw : ''
+    }
+
+
     function normalizeIdentityUrl(value) {
         if (!value) return ''
         const input = String(value).trim()
@@ -261,7 +294,14 @@
         return new Promise((resolve, reject) => {
             source.get(`tv/${movie.id}`, {}, (fresh) => {
                 if (!fresh || !Array.isArray(fresh.genres)) return reject(new Error('TMDB card has no genres'))
-                resolve(Object.assign({}, fresh, movie, { genres: fresh.genres }))
+                const merged = Object.assign({}, movie, fresh, { genres: fresh.genres })
+                try {
+                    if (merged.poster_path && L.Api && typeof L.Api.img === 'function') {
+                        merged.img = L.Api.img(merged.poster_path, 'w300')
+                        merged.poster = merged.img
+                    }
+                } catch (_) {}
+                resolve(merged)
             }, reject, { life: 60 * 24 })
         })
     }
