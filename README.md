@@ -19,15 +19,13 @@
 
 ## Установка
 
-После первого успешного GitHub Actions build доступна стабильная сборка из ветки `build`:
+Каноническая ссылка для подключения в Lampa публикуется через GitHub Pages:
 
 ```text
-https://raw.githubusercontent.com/WatherMG/lampa-tor-updater/build/plugin.js
+https://wathermg.github.io/lampa-tor-updater/plugin.js
 ```
 
-Её можно добавить в Lampa как внешний JS-плагин.
-
-Для текущего состояния `main` также доступен:
+Корневой `plugin.js` в `main` остаётся частью репозитория и может использоваться как технический fallback:
 
 ```text
 https://raw.githubusercontent.com/WatherMG/lampa-tor-updater/main/plugin.js
@@ -81,7 +79,7 @@ dist/plugin.js
 plugin.js
 ```
 
-GitHub Actions на каждый push в `main` запускает тесты, создаёт artifact и публикует `dist/plugin.js` в orphan-ветку `build`.
+GitHub Actions на каждый push в `main` запускает тесты, собирает `dist/plugin.js`, сохраняет build artifact и публикует `plugin.js` через GitHub Pages.
 
 ## Совместимость
 
