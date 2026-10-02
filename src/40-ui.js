@@ -391,7 +391,14 @@
     }
 
     function onActivity(e) {
-        if (!e || e.type !== 'destroy' || e.component !== 'mytorrents') return
+        if (!e || e.type !== 'destroy') return
+
+        if (e.component === 'torrents' && runtime.recovery && e.object && e.object.tor_updater_recovery) {
+            runtime.recovery = null
+        }
+
+        if (e.component !== 'mytorrents') return
+
         const hashes = [...runtime.pendingCleanup.keys()]
         hashes.forEach((hash) => { if (!hashBusy(hash)) cleanupOld(hash) })
     }
