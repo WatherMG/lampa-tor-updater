@@ -20,7 +20,8 @@
         activePlayerHash: null,
         listHash: null,
         bootstrapping: new Set(),
-        notified: new Set()
+        notified: new Set(),
+        recovery: null
     }
 
     function lampa() {
