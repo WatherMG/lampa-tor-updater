@@ -93,3 +93,18 @@ test('metadata merge preserves existing values and fills missing ones', () => {
 test('torrent title uses selected parser result', () => {
     assert.equal(api.lampaTorrentTitle({ Title: 'Show S01E01-E10 2160p DV' }, 'old'), '[LAMPA] Show S01E01-E10 2160p DV')
 })
+
+
+test('TMDB card title uses local and original names', () => {
+    assert.equal(
+        api.lampaMovieTitle({ name: 'Разделение', original_name: 'Severance' }, 'old'),
+        '[LAMPA] Разделение / Severance'
+    )
+})
+
+test('TMDB card title avoids duplicate local/original name', () => {
+    assert.equal(
+        api.lampaMovieTitle({ name: 'Dark', original_name: 'Dark' }, 'old'),
+        '[LAMPA] Dark'
+    )
+})
