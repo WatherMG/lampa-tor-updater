@@ -75,3 +75,21 @@ test('sameRelease does not compare title', () => {
         Title: 'completely changed title'
     }), true)
 })
+
+
+test('metadata merge preserves existing values and fills missing ones', () => {
+    const merged = api.mergeMissingMetadata(
+        { title: 'new title', poster: '', nested: { current: 'keep' } },
+        { title: 'old title', poster: 'poster.jpg', nested: { current: 'replace?', missing: 'added' }, legacy: true }
+    )
+
+    assert.equal(merged.title, 'new title')
+    assert.equal(merged.poster, 'poster.jpg')
+    assert.equal(merged.nested.current, 'keep')
+    assert.equal(merged.nested.missing, 'added')
+    assert.equal(merged.legacy, true)
+})
+
+test('torrent title uses selected parser result', () => {
+    assert.equal(api.lampaTorrentTitle({ Title: 'Show S01E01-E10 2160p DV' }, 'old'), '[LAMPA] Show S01E01-E10 2160p DV')
+})
