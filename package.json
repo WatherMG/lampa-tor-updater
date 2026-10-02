@@ -1,0 +1,15 @@
+{
+  "name": "lampa-tor-updater",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Non-invasive Lampa plugin that follows the exact tracker release and updates episodic torrents in TorrServer.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "check": "npm run test && npm run build && node scripts/check-build.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
