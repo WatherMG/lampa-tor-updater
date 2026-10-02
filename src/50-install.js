@@ -99,7 +99,9 @@
             sameRelease,
             episodeKey,
             compareEpisodeMaps,
-            parserQuery
+            parserQuery,
+            mergeMissingMetadata,
+            lampaTorrentTitle
         }
     }
 
