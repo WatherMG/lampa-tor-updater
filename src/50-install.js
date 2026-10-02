@@ -101,7 +101,8 @@
             compareEpisodeMaps,
             parserQuery,
             mergeMissingMetadata,
-            lampaTorrentTitle
+            lampaTorrentTitle,
+            lampaMovieTitle
         }
     }
 
