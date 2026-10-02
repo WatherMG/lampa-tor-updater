@@ -32,16 +32,20 @@
         return String(url).replace(/\/$/, '')
     }
 
-    function request(path, payload, timeoutMs) {
+    function request(path, payload, timeoutMs, dataType = 'json') {
         const net = newRequest()
         if (timeoutMs && net.timeout) net.timeout(timeoutMs)
 
         return new Promise((resolve, reject) => {
-            net.silent(torrServerUrl() + path, resolve, (a, c) => {
-                const err = new Error(`TorrServer request failed: ${c || a || path}`)
-                err.raw = a
+            net.silent(torrServerUrl() + path, resolve, (xhr, exception) => {
+                const decoded = net.errorDecode ? net.errorDecode(xhr, exception) : ''
+                const status = xhr && xhr.status ? `HTTP ${xhr.status}` : ''
+                const details = [status, exception, decoded].filter(Boolean).join(' / ')
+                const err = new Error(`TorrServer request failed for ${path}${details ? ': ' + details : ''}`)
+                err.raw = xhr
+                err.exception = exception
                 reject(err)
-            }, JSON.stringify(payload))
+            }, JSON.stringify(payload), { dataType })
         })
     }
 
@@ -54,7 +58,7 @@
             poster: status.poster || '',
             category: status.category || '',
             data: JSON.stringify(data || {})
-        }, 5000),
+        }, 5000, 'text'),
         add: (link, meta, saveToDb, data) => request('/torrents', {
             action: 'add',
             link,
@@ -64,13 +68,13 @@
             data: data ? JSON.stringify(data) : '',
             save_to_db: !!saveToDb
         }, 8000),
-        remove: (hash) => request('/torrents', { action: 'rem', hash }, 8000),
-        drop: (hash) => request('/torrents', { action: 'drop', hash }, 5000),
+        remove: (hash) => request('/torrents', { action: 'rem', hash }, 8000, 'text'),
+        drop: (hash) => request('/torrents', { action: 'drop', hash }, 5000, 'text'),
         viewed: (hash) => request('/viewed', { action: 'list', hash }, 5000),
         list: () => request('/torrents', { action: 'list' }, 8000),
         setViewed: (hash, fileIndex, timecode) => request('/viewed', {
             action: 'set', hash, file_index: fileIndex, timecode
-        }, 5000)
+        }, 5000, 'text')
     }
 
     async function waitForFiles(hash, timeoutMs = PROBE_TIMEOUT_MS) {
