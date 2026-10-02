@@ -119,7 +119,17 @@
         if (!link) throw new Error('Candidate link is unavailable')
 
         const newHash = String(currentProbe.newHash).toLowerCase()
-        const newData = clone(oldData)
+        const candidateData = currentProbe.status ? torrentData(currentProbe.status) : {}
+        let newData = mergeMissingMetadata(candidateData, oldData)
+
+        const freshMovie = mergeMissingMetadata(
+            candidateData.movie || {},
+            mergeMissingMetadata(oldData.movie || {}, movie || {})
+        )
+        newData = mergeMissingMetadata(newData, { lampa: true, movie: freshMovie })
+        newData.lampa = oldData.lampa !== undefined ? oldData.lampa : true
+        if (freshMovie && Object.keys(freshMovie).length) newData.movie = freshMovie
+
         newData[FOLLOW_KEY] = Object.assign({}, follow, {
             version: FOLLOW_VERSION,
             release_key: identity.key,
@@ -134,15 +144,22 @@
         })
 
         const persist = follow.persistent !== false
+        const candidateTitle = lampaTorrentTitle(currentProbe.candidate, currentProbe.status && (currentProbe.status.title || currentProbe.status.name))
+        const freshPoster = (freshMovie && (freshMovie.poster || freshMovie.img)) || ''
         const meta = {
-            title: oldStatus.title || '',
-            poster: oldStatus.poster || '',
-            category: oldStatus.category || 'tv'
+            title: candidateTitle || (currentProbe.status && currentProbe.status.title) || oldStatus.title || '',
+            poster: freshPoster || (currentProbe.status && currentProbe.status.poster) || oldStatus.poster || '',
+            category: (currentProbe.status && currentProbe.status.category) || oldStatus.category || 'tv'
         }
 
         await ts.add(link, meta, persist, newData)
         const newStatus = await waitForFiles(newHash)
-        await ts.set(newHash, newStatus, newData)
+        const mergedStatus = Object.assign({}, newStatus, {
+            title: meta.title || newStatus.title,
+            poster: meta.poster || newStatus.poster,
+            category: meta.category || newStatus.category
+        })
+        await ts.set(newHash, mergedStatus, newData)
         await transferViewed(oldHash, newHash, currentProbe.oldMap, currentProbe.newMap)
 
         try { await writeFollow(oldStatus, { superseded_by: newHash, checked_at: Date.now(), last_result: 'superseded' }) } catch (_) {}
