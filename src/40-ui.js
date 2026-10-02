@@ -115,12 +115,34 @@
         const hash = recovery.hash
         const movie = recovery.movie
         const identity = releaseIdentity(candidate)
+        const selectedHash = resultInfoHash(candidate)
 
         if (!identity || !resultLink(candidate)) {
             if (L && L.Noty) L.Noty.show(text(
                 'У этой раздачи нет стабильного идентификатора для привязки',
                 'This release has no stable identity for binding'
             ))
+            return
+        }
+
+        if (selectedHash && selectedHash === hash) {
+            try {
+                const status = await ts.get(hash)
+                await writeFollow(status, {
+                    release_key: identity.key,
+                    tracker_id: identity.tracker_id,
+                    tracker: identity.tracker,
+                    identity_via: identity.via,
+                    info_hash: hash,
+                    checked_at: Date.now(),
+                    persistent: true
+                })
+                runtime.recovery = null
+                if (L && L.Noty) L.Noty.show(text('Выбрана текущая версия раздачи', 'The current torrent revision is already selected'))
+                closeRecoveryPage()
+            } catch (error) {
+                warn('Failed to bind current release', error)
+            }
             return
         }
 
@@ -237,6 +259,61 @@
         }
     }
 
+    async function refreshTorrentMetadata(hash, movie, objectRef) {
+        const L = lampa()
+        if (L && L.Noty) L.Noty.show(text('Обновляю метаданные…', 'Refreshing metadata…'))
+
+        try {
+            const freshMovie = await hydrateMovie(movie, true)
+            const status = await ts.get(hash)
+            const data = torrentData(status)
+            const mergedMovie = mergeMissingMetadata(data.movie || {}, freshMovie || {})
+
+            const refreshFields = [
+                'title', 'name', 'original_title', 'original_name',
+                'poster_path', 'backdrop_path', 'img', 'poster', 'background_image',
+                'release_date', 'first_air_date', 'number_of_seasons', 'number_of_episodes',
+                'next_episode_to_air', 'status'
+            ]
+            refreshFields.forEach((key) => {
+                if (freshMovie && !isMissingMetadata(freshMovie[key])) mergedMovie[key] = clone(freshMovie[key])
+            })
+
+            const mergedData = mergeMissingMetadata(data, { lampa: true, movie: mergedMovie })
+            mergedData.lampa = data.lampa !== undefined ? data.lampa : true
+            mergedData.movie = mergedMovie
+
+            const freshTitle = lampaMovieTitle(mergedMovie, status.title)
+            const freshPoster = mergedMovie.poster || mergedMovie.img || status.poster || ''
+
+            const updatedStatus = Object.assign({}, status, {
+                title: freshTitle || status.title,
+                poster: freshPoster,
+                category: status.category || 'tv'
+            })
+
+            await ts.set(hash, updatedStatus, mergedData)
+
+            if (objectRef) {
+                objectRef.title = (updatedStatus.title || '').replace(/^\[LAMPA\]\s*/i, '')
+                objectRef.poster = updatedStatus.poster
+                objectRef.data = mergedData
+            }
+
+            if (L && L.Noty) L.Noty.show(text('Метаданные обновлены', 'Metadata updated'))
+            setTimeout(() => {
+                try { if (L && L.Activity && L.Activity.refresh) L.Activity.refresh() } catch (_) {}
+            }, 200)
+        } catch (error) {
+            warn('Metadata refresh failed', error)
+            if (L && L.Noty) L.Noty.show(text('Не удалось обновить метаданные', 'Could not refresh metadata'))
+        }
+    }
+
+    async function startManualRecovery(hash, movie, files, objectRef) {
+        await openNativeRecovery(hash, movie, files, objectRef)
+    }
+
     async function manualCheck(hash, movie, files, objectRef) {
         const L = lampa()
         if (L && L.Noty) L.Noty.show(text('Проверяю обновление…', 'Checking for updates…'))
@@ -323,6 +400,26 @@
                 const L = lampa()
                 try { L.Controller.toggle(controller) } catch (_) {}
                 manualCheck(hash, movie, files, objectRef)
+            }
+        })
+
+        menu.push({
+            title: text('Ручное обновление', 'Manual update'),
+            subtitle: text('Выбрать другую раздачу через штатный поиск Lampa', 'Choose another release using Lampa torrent search'),
+            onSelect: () => {
+                const L = lampa()
+                try { L.Controller.toggle(controller) } catch (_) {}
+                startManualRecovery(hash, movie, files, objectRef)
+            }
+        })
+
+        menu.push({
+            title: text('Обновить метаданные', 'Refresh metadata'),
+            subtitle: text('Обновить название и изображение из карточки TMDB', 'Refresh title and poster from the TMDB card'),
+            onSelect: () => {
+                const L = lampa()
+                try { L.Controller.toggle(controller) } catch (_) {}
+                refreshTorrentMetadata(hash, movie, objectRef)
             }
         })
     }
