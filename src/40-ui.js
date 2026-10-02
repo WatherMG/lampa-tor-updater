@@ -70,8 +70,8 @@
         })
 
         if (L && L.Noty) L.Noty.show(text(
-            'Выберите нужную раздачу и зажмите OK → «Использовать для обновления»',
-            'Choose the release, long-press OK, then select “Use for update”'
+            'Выберите нужную раздачу и нажмите OK',
+            'Choose the release and press OK'
         ))
     }
 
@@ -173,10 +173,10 @@
         })
     }
 
-    function addRecoveryTorrentMenu(e) {
+    function bindRecoveryTorrentItem(e) {
         const L = lampa()
         const recovery = runtime.recovery
-        if (!recovery || !e || e.type !== 'onlong' || !e.element || !Array.isArray(e.menu)) return
+        if (!recovery || !e || e.type !== 'render' || !e.element || !e.item) return
         if (Date.now() - Number(recovery.started_at || 0) > 15 * 60 * 1000) {
             runtime.recovery = null
             return
@@ -186,12 +186,14 @@
         try { active = L.Activity.active() } catch (_) { active = null }
         if (!active || active.component !== 'torrents' || !sameMovie(active.movie, recovery.movie)) return
 
-        e.menu.unshift({
-            title: text('Использовать для обновления', 'Use for update'),
-            subtitle: text('Проверить серии и привязать эту раздачу', 'Verify episodes and bind this release'),
-            tor_updater_recovery: true,
-            onSelect: () => useRecoveryCandidate(e.element)
-        })
+        try {
+            e.item.off('hover:enter')
+            e.item.on('hover:enter', () => {
+                useRecoveryCandidate(e.element)
+            })
+        } catch (error) {
+            warn('Failed to bind recovery torrent item', error)
+        }
     }
 
     async function manualCheck(hash, movie, files, objectRef) {
@@ -279,8 +281,8 @@
     function onTorrent(e) {
         if (!enabled() || !e) return
 
-        if (e.type === 'onlong') {
-            addRecoveryTorrentMenu(e)
+        if (e.type === 'render') {
+            bindRecoveryTorrentItem(e)
             return
         }
 
