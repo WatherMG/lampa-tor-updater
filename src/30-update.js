@@ -126,6 +126,17 @@
             candidateData.movie || {},
             mergeMissingMetadata(oldData.movie || {}, movie || {})
         )
+
+        const refreshMovieFields = [
+            'title', 'name', 'original_title', 'original_name',
+            'poster_path', 'backdrop_path', 'img', 'poster', 'background_image',
+            'release_date', 'first_air_date', 'number_of_seasons', 'number_of_episodes',
+            'next_episode_to_air', 'status'
+        ]
+        refreshMovieFields.forEach((key) => {
+            if (movie && !isMissingMetadata(movie[key])) freshMovie[key] = clone(movie[key])
+        })
+
         newData = mergeMissingMetadata(newData, { lampa: true, movie: freshMovie })
         newData.lampa = oldData.lampa !== undefined ? oldData.lampa : true
         if (freshMovie && Object.keys(freshMovie).length) newData.movie = freshMovie
