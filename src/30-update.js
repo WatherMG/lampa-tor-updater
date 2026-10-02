@@ -13,7 +13,7 @@
             if (follow && follow.superseded_by) return { kind: 'superseded', hash: follow.superseded_by }
 
             if (!follow || !follow.release_key) {
-                follow = await bootstrapFollow(hash, movie, files || oldStatus.file_stats || [])
+                follow = await bootstrapFollow(hash, movie, files || oldStatus.file_stats || [], options.force)
                 if (!follow) return { kind: 'unbound' }
                 data = torrentData(await ts.get(hash))
             }
