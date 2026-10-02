@@ -30,127 +30,167 @@
     }
 
 
-    function recoveryCandidateLabel(result) {
-        const title = String(result.Title || result.title || text('Без названия', 'Untitled'))
-        const tracker = String(result.Tracker || result.tracker || '')
-        const seeders = Number(result.Seeders || result.seeders || 0)
-        const size = String(result.size || result.Size || '')
-        return {
-            title,
-            subtitle: [tracker, size, seeders ? `↑ ${seeders}` : ''].filter(Boolean).join(' • ')
-        }
+    function sameMovie(a, b) {
+        if (!a || !b) return false
+        if (a.id && b.id) return String(a.id) === String(b.id)
+        return String(a.original_name || a.name || a.title || '') === String(b.original_name || b.name || b.title || '')
     }
 
-    async function recoverLegacyBinding(hash, movie, files, objectRef) {
+    async function openNativeRecovery(hash, movie, files, objectRef) {
         const L = lampa()
-        let results
+        let fullMovie
 
         try {
-            results = await parserSearch(movie)
+            fullMovie = await hydrateMovie(movie)
         } catch (error) {
-            warn('Legacy recovery search failed', error)
-            if (L && L.Noty) L.Noty.show(text('Не удалось выполнить поиск раздач', 'Could not search torrent releases'))
+            warn('Legacy recovery card hydration failed', error)
+            if (L && L.Noty) L.Noty.show(text('Не удалось открыть штатный поиск торрентов', 'Could not open native torrent search'))
             return
         }
 
-        const candidates = results
-            .filter((result) => releaseIdentity(result) && resultLink(result))
-            .filter((result) => resultInfoHash(result) !== String(hash).toLowerCase())
-
-        if (!candidates.length) {
-            if (L && L.Noty) L.Noty.show(text('Не найдено подходящих раздач для ручной привязки', 'No releases available for manual binding'))
-            return
+        const q = parserQuery(fullMovie)
+        runtime.recovery = {
+            hash: String(hash).toLowerCase(),
+            movie: fullMovie,
+            files: files || [],
+            objectRef: objectRef || null,
+            started_at: Date.now()
         }
 
-        const items = candidates.slice(0, 50).map((candidate) => {
-            const label = recoveryCandidateLabel(candidate)
-            return {
-                title: label.title,
-                subtitle: label.subtitle,
-                onSelect: async () => {
-                    if (L && L.Noty) L.Noty.show(text('Проверяю выбранную раздачу…', 'Checking selected release…'))
-
-                    let probe
-                    let oldStatus
-                    try {
-                        oldStatus = await ts.get(hash)
-                        probe = await probeCandidate(hash, movie, oldStatus, candidate)
-                    } catch (error) {
-                        warn('Legacy recovery probe failed', error)
-                        if (L && L.Noty) L.Noty.show(text('Не удалось проверить выбранную раздачу', 'Could not verify the selected release'))
-                        return
-                    }
-
-                    try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
-
-                    if (probe.classification === 'incompatible') {
-                        if (L && L.Noty) L.Noty.show(text(
-                            'Эта раздача не содержит все серии из текущего торрента',
-                            'This release does not contain all episodes from the current torrent'
-                        ))
-                        return
-                    }
-
-                    if (probe.classification === 'unknown') {
-                        if (L && L.Noty) L.Noty.show(text(
-                            'Не удалось надёжно сопоставить серии в этой раздаче',
-                            'Could not reliably match episodes in this release'
-                        ))
-                        return
-                    }
-
-                    const identity = releaseIdentity(candidate)
-                    const subtitle = probe.classification === 'new_episodes'
-                        ? `${probe.oldMap.size} → ${probe.newMap.size} ${text('серий', 'episodes')}`
-                        : text('Та же серия эпизодов, но новая ревизия torrent', 'Same episode set, but a new torrent revision')
-
-                    L.Select.show({
-                        title: text('Привязать эту раздачу?', 'Bind this release?'),
-                        items: [
-                            {
-                                title: text('Привязать и обновить', 'Bind and update'),
-                                subtitle,
-                                onSelect: async () => {
-                                    try {
-                                        const status = await ts.get(hash)
-                                        await writeFollow(status, {
-                                            release_key: identity.key,
-                                            tracker_id: identity.tracker_id,
-                                            tracker: identity.tracker,
-                                            identity_via: identity.via,
-                                            info_hash: String(hash).toLowerCase(),
-                                            checked_at: 0,
-                                            episode_count: probe.oldMap.size,
-                                            persistent: true,
-                                            legacy_recovered_at: Date.now()
-                                        })
-
-                                        const verified = await probeCandidate(hash, movie, await ts.get(hash), candidate)
-                                        if (verified.classification === 'incompatible' || verified.classification === 'unknown') {
-                                            throw new Error('candidate changed during recovery')
-                                        }
-
-                                        await applyUpdate(hash, movie, verified, { manual: true, objectRef })
-                                        log('Recovered legacy release binding', hash, identity.tracker_id || identity.tracker, identity.via)
-                                    } catch (error) {
-                                        warn('Legacy recovery update failed', error)
-                                        if (L && L.Noty) L.Noty.show(text(
-                                            'Не удалось безопасно привязать и обновить раздачу',
-                                            'Could not safely bind and update the release'
-                                        ))
-                                    }
-                                }
-                            },
-                            { title: text('Отмена', 'Cancel') }
-                        ]
-                    })
-                }
-            }
+        L.Activity.push({
+            url: '',
+            title: text('Выберите раздачу для обновления', 'Choose release for update'),
+            component: 'torrents',
+            search: q.text,
+            search_one: q.one,
+            search_two: q.two,
+            movie: fullMovie,
+            page: 1,
+            tor_updater_recovery: true
         })
 
+        if (L && L.Noty) L.Noty.show(text(
+            'Выберите нужную раздачу и зажмите OK → «Использовать для обновления»',
+            'Choose the release, long-press OK, then select “Use for update”'
+        ))
+    }
+
+    async function useRecoveryCandidate(candidate) {
+        const L = lampa()
+        const recovery = runtime.recovery
+        if (!recovery || !candidate) return
+
+        const hash = recovery.hash
+        const movie = recovery.movie
+        const identity = releaseIdentity(candidate)
+
+        if (!identity || !resultLink(candidate)) {
+            if (L && L.Noty) L.Noty.show(text(
+                'У этой раздачи нет стабильного идентификатора для привязки',
+                'This release has no stable identity for binding'
+            ))
+            return
+        }
+
+        if (L && L.Noty) L.Noty.show(text('Проверяю выбранную раздачу…', 'Checking selected release…'))
+
+        let oldStatus
+        let probe
+        try {
+            oldStatus = await ts.get(hash)
+            probe = await probeCandidate(hash, movie, oldStatus, candidate)
+        } catch (error) {
+            warn('Legacy recovery probe failed', error)
+            if (L && L.Noty) L.Noty.show(text('Не удалось проверить выбранную раздачу', 'Could not verify the selected release'))
+            return
+        }
+
+        try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
+
+        if (probe.classification === 'incompatible') {
+            if (L && L.Noty) L.Noty.show(text(
+                'Эта раздача не содержит все серии из текущего торрента',
+                'This release does not contain all episodes from the current torrent'
+            ))
+            return
+        }
+
+        if (probe.classification === 'unknown') {
+            if (L && L.Noty) L.Noty.show(text(
+                'Не удалось надёжно сопоставить серии в этой раздаче',
+                'Could not reliably match episodes in this release'
+            ))
+            return
+        }
+
+        const subtitle = probe.classification === 'new_episodes'
+            ? `${probe.oldMap.size} → ${probe.newMap.size} ${text('серий', 'episodes')}`
+            : text('Та же серия эпизодов, но новая ревизия torrent', 'Same episode set, but a new torrent revision')
+
         L.Select.show({
-            title: text('Выберите текущую версию этой раздачи', 'Choose the current version of this release'),
-            items
+            title: text('Привязать эту раздачу?', 'Bind this release?'),
+            items: [
+                {
+                    title: text('Привязать и обновить', 'Bind and update'),
+                    subtitle,
+                    onSelect: async () => {
+                        try {
+                            const status = await ts.get(hash)
+                            await writeFollow(status, {
+                                release_key: identity.key,
+                                tracker_id: identity.tracker_id,
+                                tracker: identity.tracker,
+                                identity_via: identity.via,
+                                info_hash: String(hash).toLowerCase(),
+                                checked_at: 0,
+                                episode_count: probe.oldMap.size,
+                                persistent: true,
+                                legacy_recovered_at: Date.now()
+                            })
+
+                            const verified = await probeCandidate(hash, movie, await ts.get(hash), candidate)
+                            if (verified.classification === 'incompatible' || verified.classification === 'unknown') {
+                                throw new Error('candidate changed during recovery')
+                            }
+
+                            await applyUpdate(hash, movie, verified, {
+                                manual: true,
+                                objectRef: recovery.objectRef
+                            })
+                            runtime.recovery = null
+                            log('Recovered legacy release binding', hash, identity.tracker_id || identity.tracker, identity.via)
+                        } catch (error) {
+                            warn('Legacy recovery update failed', error)
+                            if (L && L.Noty) L.Noty.show(text(
+                                'Не удалось безопасно привязать и обновить раздачу',
+                                'Could not safely bind and update the release'
+                            ))
+                        }
+                    }
+                },
+                { title: text('Отмена', 'Cancel') }
+            ]
+        })
+    }
+
+    function addRecoveryTorrentMenu(e) {
+        const L = lampa()
+        const recovery = runtime.recovery
+        if (!recovery || !e || e.type !== 'onlong' || !e.element || !Array.isArray(e.menu)) return
+        if (Date.now() - Number(recovery.started_at || 0) > 15 * 60 * 1000) {
+            runtime.recovery = null
+            return
+        }
+
+        let active
+        try { active = L.Activity.active() } catch (_) { active = null }
+        if (!active || active.component !== 'torrents' || !sameMovie(active.movie, recovery.movie)) return
+
+        e.menu.unshift({
+            title: text('Использовать для обновления', 'Use for update'),
+            subtitle: text('Проверить серии и привязать эту раздачу', 'Verify episodes and bind this release'),
+            tor_updater_recovery: true,
+            onSelect: () => useRecoveryCandidate(e.element)
         })
     }
 
@@ -164,7 +204,7 @@
             return
         }
         if (result.kind === 'unbound') {
-            await recoverLegacyBinding(hash, movie, files, objectRef)
+            await openNativeRecovery(hash, movie, files, objectRef)
             return
         }
         if (result.kind === 'incompatible') {
@@ -237,7 +277,14 @@
     }
 
     function onTorrent(e) {
-        if (!enabled() || !e || e.type !== 'onenter' || !e.element) return
+        if (!enabled() || !e) return
+
+        if (e.type === 'onlong') {
+            addRecoveryTorrentMenu(e)
+            return
+        }
+
+        if (e.type !== 'onenter' || !e.element) return
         const metadata = selectionMetadata(e.element)
         runtime.pendingSelection = metadata
         debug('Parser selection', {
