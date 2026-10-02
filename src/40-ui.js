@@ -30,6 +30,38 @@
     }
 
 
+    function activeControllerName(fallback = 'content') {
+        const L = lampa()
+        try {
+            const enabled = L && L.Controller && L.Controller.enabled && L.Controller.enabled()
+            return enabled && enabled.name ? enabled.name : fallback
+        } catch (_) {
+            return fallback
+        }
+    }
+
+    function restoreController(name) {
+        const L = lampa()
+        try {
+            if (L && L.Controller && L.Controller.toggle) L.Controller.toggle(name || 'content')
+        } catch (_) {}
+    }
+
+    function closeRecoveryPage() {
+        const L = lampa()
+        try {
+            const active = L && L.Activity && L.Activity.active && L.Activity.active()
+            if (active && active.component === 'torrents') L.Activity.backward()
+        } catch (_) {}
+
+        setTimeout(() => {
+            try {
+                if (L && L.Activity && L.Activity.refresh) L.Activity.refresh()
+            } catch (_) {}
+        }, 300)
+    }
+
+
     function sameMovie(a, b) {
         if (!a || !b) return false
         if (a.id && b.id) return String(a.id) === String(b.id)
@@ -126,6 +158,7 @@
         const subtitle = probe.classification === 'new_episodes'
             ? `${probe.oldMap.size} → ${probe.newMap.size} ${text('серий', 'episodes')}`
             : text('Та же серия эпизодов, но новая ревизия torrent', 'Same episode set, but a new torrent revision')
+        const recoveryController = activeControllerName('content')
 
         L.Select.show({
             title: text('Привязать эту раздачу?', 'Bind this release?'),
@@ -134,6 +167,9 @@
                     title: text('Привязать и обновить', 'Bind and update'),
                     subtitle,
                     onSelect: async () => {
+                        restoreController(recoveryController)
+                        if (L && L.Noty) L.Noty.show(text('Обновляю раздачу…', 'Updating torrent…'))
+
                         try {
                             const status = await ts.get(hash)
                             await writeFollow(status, {
@@ -159,6 +195,7 @@
                             })
                             runtime.recovery = null
                             log('Recovered legacy release binding', hash, identity.tracker_id || identity.tracker, identity.via)
+                            closeRecoveryPage()
                         } catch (error) {
                             warn('Legacy recovery update failed', error)
                             if (L && L.Noty) L.Noty.show(text(
@@ -168,8 +205,12 @@
                         }
                     }
                 },
-                { title: text('Отмена', 'Cancel') }
-            ]
+                {
+                    title: text('Отмена', 'Cancel'),
+                    onSelect: () => restoreController(recoveryController)
+                }
+            ],
+            onBack: () => restoreController(recoveryController)
         })
     }
 
@@ -221,6 +262,7 @@
         const subtitle = cached.classification === 'new_episodes'
             ? `${cached.old_count} → ${cached.new_count} ${text('серий', 'episodes')}`
             : text('Изменился infohash той же раздачи', 'The same release has a new infohash')
+        const manualController = activeControllerName('content')
 
         L.Select.show({
             title: text('Найдена новая версия раздачи', 'A new torrent revision is available'),
@@ -229,6 +271,9 @@
                     title: text('Обновить вручную', 'Update manually'),
                     subtitle,
                     onSelect: async () => {
+                        restoreController(manualController)
+                        if (L && L.Noty) L.Noty.show(text('Обновляю раздачу…', 'Updating torrent…'))
+
                         try {
                             const oldStatus = await ts.get(hash)
                             const probe = await probeCandidate(hash, movie, oldStatus, cached.candidate)
@@ -240,8 +285,12 @@
                         }
                     }
                 },
-                { title: text('Оставить текущую', 'Keep current') }
-            ]
+                {
+                    title: text('Оставить текущую', 'Keep current'),
+                    onSelect: () => restoreController(manualController)
+                }
+            ],
+            onBack: () => restoreController(manualController)
         })
     }
 
