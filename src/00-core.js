@@ -267,6 +267,15 @@
         return !!identity && identity.key === follow.release_key
     }
 
+    function isPlayableFile(file) {
+        const ext = String(file && file.path || '').split('.').pop().toLowerCase()
+        return VIDEO_EXTENSIONS.has(ext)
+    }
+
+    function playableFileCount(files) {
+        return Array.isArray(files) ? files.filter(isPlayableFile).length : 0
+    }
+
     function episodeKey(season, episode) {
         const s = Number(season)
         const e = Number(episode)
