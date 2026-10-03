@@ -102,7 +102,9 @@
             parserQuery,
             mergeMissingMetadata,
             lampaTorrentTitle,
-            lampaMovieTitle
+            lampaMovieTitle,
+            metadataRefreshTitle,
+            playableFileCount
         }
     }
 
