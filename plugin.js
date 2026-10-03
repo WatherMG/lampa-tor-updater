@@ -1,8 +1,8 @@
-/* Lampa Tor Updater v0.1.4 | built 2026-10-03T00:00:00Z | https://github.com/WatherMG/lampa-tor-updater */
+/* Lampa Tor Updater v0.1.5 | built 2026-10-03T00:00:00Z | https://github.com/WatherMG/lampa-tor-updater */
 (function () {
     'use strict'
 
-    const VERSION = '0.1.4'
+    const VERSION = '0.1.5'
     const BUILD_DATE = '2026-10-03T00:00:00Z'
     const COMPONENT = 'tor_updater'
     const FOLLOW_KEY = 'torrent_follow'
@@ -138,6 +138,26 @@
         return raw ? '[LAMPA] ' + raw : ''
     }
 
+    function cleanLampaTitle(value) {
+        return String(value || '').replace(/^\[LAMPA\]\s*/i, '').trim()
+    }
+
+    function metadataRefreshTitle(status, movie) {
+        const current = String(status && status.title || '').trim()
+        const torrentName = String(status && status.name || '').trim()
+        const generic = lampaMovieTitle(movie, '')
+        const currentClean = cleanLampaTitle(current)
+        const genericClean = cleanLampaTitle(generic)
+
+        if (current && normalizedString(currentClean) !== normalizedString(genericClean)) return current
+
+        if (torrentName && normalizedString(torrentName) !== normalizedString(genericClean)) {
+            return lampaTorrentTitle({ Title: torrentName }, current || generic)
+        }
+
+        return current || generic
+    }
+
 
     function normalizeIdentityUrl(value) {
         if (!value) return ''
@@ -248,6 +268,15 @@
         return !!identity && identity.key === follow.release_key
     }
 
+    function isPlayableFile(file) {
+        const ext = String(file && file.path || '').split('.').pop().toLowerCase()
+        return VIDEO_EXTENSIONS.has(ext)
+    }
+
+    function playableFileCount(files) {
+        return Array.isArray(files) ? files.filter(isPlayableFile).length : 0
+    }
+
     function episodeKey(season, episode) {
         const s = Number(season)
         const e = Number(episode)
@@ -297,15 +326,17 @@
 
     function hydrateMovie(movie, force) {
         const L = lampa()
-        if (!movie || !movie.id || !isTv(movie)) return Promise.reject(new Error('Not a TV card'))
+        if (!movie || !movie.id) return Promise.reject(new Error('Card has no TMDB id'))
         if (!force && Array.isArray(movie.genres)) return Promise.resolve(movie)
 
         const tmdb = L && L.Api && L.Api.sources && L.Api.sources.tmdb
         const source = tmdb && typeof tmdb.get === 'function' ? tmdb : (L && L.TMDB)
         if (!source || typeof source.get !== 'function') return Promise.reject(new Error('TMDB source is unavailable'))
 
+        const mediaType = isTv(movie) ? 'tv' : 'movie'
+
         return new Promise((resolve, reject) => {
-            source.get(`tv/${movie.id}`, {}, (fresh) => {
+            source.get(`${mediaType}/${movie.id}`, {}, (fresh) => {
                 if (!fresh || !Array.isArray(fresh.genres)) return reject(new Error('TMDB card has no genres'))
                 const merged = Object.assign({}, movie, fresh, { genres: fresh.genres })
                 try {
@@ -586,8 +617,35 @@
         }
 
         const oldMap = episodeMap(movie, oldStatus.file_stats || [])
-        const newMap = episodeMap(movie, newStatus.file_stats || [])
-        const classification = compareEpisodeMaps(oldMap, newMap)
+        let newMap = episodeMap(movie, newStatus.file_stats || [])
+        let classification
+
+        if (isTv(movie)) {
+            let previousSignature = ''
+            let stableReads = 0
+            const started = Date.now()
+
+            while (Date.now() - started < 7000 && (newMap.size === 0 || stableReads < 2)) {
+                const signature = [...newMap.keys()].sort().join(',')
+                if (signature && signature === previousSignature) stableReads++
+                else stableReads = 0
+                previousSignature = signature
+
+                if (newMap.size > 0 && stableReads >= 2) break
+
+                await new Promise((resolve) => setTimeout(resolve, 900))
+                try {
+                    newStatus = await ts.get(newHash)
+                    newMap = episodeMap(movie, newStatus.file_stats || [])
+                } catch (_) {}
+            }
+
+            classification = compareEpisodeMaps(oldMap, newMap)
+        } else {
+            const oldPlayable = playableFileCount(oldStatus.file_stats || [])
+            const newPlayable = playableFileCount(newStatus.file_stats || [])
+            classification = oldPlayable > 0 && newPlayable > 0 ? 'revision' : 'unknown'
+        }
 
         return { classification, newHash, status: newStatus, candidate, oldMap, newMap, data, link }
     }
@@ -628,7 +686,7 @@
     async function checkForUpdate(hash, movie, files, options) {
         options = options || {}
         hash = String(hash || '').toLowerCase()
-        if (!enabled() || !hash || !movie || !isTv(movie)) return { kind: 'skipped' }
+        if (!enabled() || !hash || !movie || !movie.id) return { kind: 'skipped' }
         if (runtime.checking.has(hash)) return { kind: 'busy' }
 
         runtime.checking.add(hash)
@@ -776,7 +834,7 @@
             identity_via: identity.via,
             info_hash: newHash,
             checked_at: Date.now(),
-            episode_count: currentProbe.newMap.size,
+            episode_count: isTv(movie) ? currentProbe.newMap.size : Number(follow.episode_count || 0),
             last_result: currentProbe.classification,
             previous_hash: oldHash
         })
@@ -787,7 +845,7 @@
         const meta = {
             title: candidateTitle || (currentProbe.status && currentProbe.status.title) || oldStatus.title || '',
             poster: freshPoster || (currentProbe.status && currentProbe.status.poster) || oldStatus.poster || '',
-            category: (currentProbe.status && currentProbe.status.category) || oldStatus.category || 'tv'
+            category: (currentProbe.status && currentProbe.status.category) || oldStatus.category || (isTv(movie) ? 'tv' : 'movie')
         }
 
         await ts.add(link, meta, persist, newData)
@@ -988,9 +1046,8 @@
             return
         }
 
-        try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
-
         if (probe.classification === 'incompatible') {
+            try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
             if (L && L.Noty) L.Noty.show(text(
                 'Эта раздача не содержит все серии из текущего торрента',
                 'This release does not contain all episodes from the current torrent'
@@ -999,6 +1056,7 @@
         }
 
         if (probe.classification === 'unknown') {
+            try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
             if (L && L.Noty) L.Noty.show(text(
                 'Не удалось надёжно сопоставить серии в этой раздаче',
                 'Could not reliably match episodes in this release'
@@ -1008,7 +1066,9 @@
 
         const subtitle = probe.classification === 'new_episodes'
             ? `${probe.oldMap.size} → ${probe.newMap.size} ${text('серий', 'episodes')}`
-            : text('Та же серия эпизодов, но новая ревизия torrent', 'Same episode set, but a new torrent revision')
+            : isTv(movie)
+                ? text('Состав серий одинаковый, но это другая ревизия torrent', 'Episode set is unchanged, but this is another torrent revision')
+                : text('Новая ревизия выбранной раздачи', 'A new revision of the selected release')
         const recoveryController = activeControllerName('content')
 
         L.Select.show({
@@ -1035,12 +1095,7 @@
                                 legacy_recovered_at: Date.now()
                             })
 
-                            const verified = await probeCandidate(hash, movie, await ts.get(hash), candidate)
-                            if (verified.classification === 'incompatible' || verified.classification === 'unknown') {
-                                throw new Error('candidate changed during recovery')
-                            }
-
-                            await applyUpdate(hash, movie, verified, {
+                            await applyUpdate(hash, movie, probe, {
                                 manual: true,
                                 objectRef: recovery.objectRef
                             })
@@ -1058,10 +1113,16 @@
                 },
                 {
                     title: text('Отмена', 'Cancel'),
-                    onSelect: () => restoreController(recoveryController)
+                    onSelect: async () => {
+                        restoreController(recoveryController)
+                        try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
+                    }
                 }
             ],
-            onBack: () => restoreController(recoveryController)
+            onBack: async () => {
+                restoreController(recoveryController)
+                try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
+            }
         })
     }
 
@@ -1112,13 +1173,13 @@
             mergedData.lampa = data.lampa !== undefined ? data.lampa : true
             mergedData.movie = mergedMovie
 
-            const freshTitle = lampaMovieTitle(mergedMovie, status.title)
+            const freshTitle = metadataRefreshTitle(status, mergedMovie)
             const freshPoster = mergedMovie.poster || mergedMovie.img || status.poster || ''
 
             const updatedStatus = Object.assign({}, status, {
                 title: freshTitle || status.title,
                 poster: freshPoster,
-                category: status.category || 'tv'
+                category: status.category || (isTv(mergedMovie) ? 'tv' : 'movie')
             })
 
             await ts.set(hash, updatedStatus, mergedData)
@@ -1201,7 +1262,7 @@
     }
 
     function addUpdateMenu(menu, hash, movie, files, objectRef) {
-        if (!enabled() || !hash || !movie || !isTv(movie) || !Array.isArray(menu)) return
+        if (!enabled() || !hash || !movie || !movie.id || !Array.isArray(menu)) return
         const cached = runtime.candidates.get(hash)
         const controller = (() => {
             const L = lampa()
@@ -1288,7 +1349,7 @@
         if (e.type === 'render' && e.element) {
             const hash = String(e.element.torrent_hash || '').toLowerCase()
             const movie = e.params && e.params.movie || e.element.card
-            if (!hash || !movie || !isTv(movie)) return
+            if (!hash || !movie || !movie.id) return
 
             runtime.listHash = hash
             if (!runtime.sessions.has(hash)) runtime.sessions.set(hash, { movie, files: e.items || [], checked: false })
@@ -1453,7 +1514,9 @@
             parserQuery,
             mergeMissingMetadata,
             lampaTorrentTitle,
-            lampaMovieTitle
+            lampaMovieTitle,
+            metadataRefreshTitle,
+            playableFileCount
         }
     }
 
