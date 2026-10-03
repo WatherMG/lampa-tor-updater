@@ -1,7 +1,7 @@
     async function checkForUpdate(hash, movie, files, options) {
         options = options || {}
         hash = String(hash || '').toLowerCase()
-        if (!enabled() || !hash || !movie || !isTv(movie)) return { kind: 'skipped' }
+        if (!enabled() || !hash || !movie || !movie.id) return { kind: 'skipped' }
         if (runtime.checking.has(hash)) return { kind: 'busy' }
 
         runtime.checking.add(hash)
@@ -149,7 +149,7 @@
             identity_via: identity.via,
             info_hash: newHash,
             checked_at: Date.now(),
-            episode_count: currentProbe.newMap.size,
+            episode_count: isTv(movie) ? currentProbe.newMap.size : Number(follow.episode_count || 0),
             last_result: currentProbe.classification,
             previous_hash: oldHash
         })
