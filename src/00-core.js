@@ -137,6 +137,26 @@
         return raw ? '[LAMPA] ' + raw : ''
     }
 
+    function cleanLampaTitle(value) {
+        return String(value || '').replace(/^\[LAMPA\]\s*/i, '').trim()
+    }
+
+    function metadataRefreshTitle(status, movie) {
+        const current = String(status && status.title || '').trim()
+        const torrentName = String(status && status.name || '').trim()
+        const generic = lampaMovieTitle(movie, '')
+        const currentClean = cleanLampaTitle(current)
+        const genericClean = cleanLampaTitle(generic)
+
+        if (current && normalizedString(currentClean) !== normalizedString(genericClean)) return current
+
+        if (torrentName && normalizedString(torrentName) !== normalizedString(genericClean)) {
+            return lampaTorrentTitle({ Title: torrentName }, current || generic)
+        }
+
+        return current || generic
+    }
+
 
     function normalizeIdentityUrl(value) {
         if (!value) return ''
@@ -296,15 +316,17 @@
 
     function hydrateMovie(movie, force) {
         const L = lampa()
-        if (!movie || !movie.id || !isTv(movie)) return Promise.reject(new Error('Not a TV card'))
+        if (!movie || !movie.id) return Promise.reject(new Error('Card has no TMDB id'))
         if (!force && Array.isArray(movie.genres)) return Promise.resolve(movie)
 
         const tmdb = L && L.Api && L.Api.sources && L.Api.sources.tmdb
         const source = tmdb && typeof tmdb.get === 'function' ? tmdb : (L && L.TMDB)
         if (!source || typeof source.get !== 'function') return Promise.reject(new Error('TMDB source is unavailable'))
 
+        const mediaType = isTv(movie) ? 'tv' : 'movie'
+
         return new Promise((resolve, reject) => {
-            source.get(`tv/${movie.id}`, {}, (fresh) => {
+            source.get(`${mediaType}/${movie.id}`, {}, (fresh) => {
                 if (!fresh || !Array.isArray(fresh.genres)) return reject(new Error('TMDB card has no genres'))
                 const merged = Object.assign({}, movie, fresh, { genres: fresh.genres })
                 try {
