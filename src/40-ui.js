@@ -292,7 +292,7 @@
             const updatedStatus = Object.assign({}, status, {
                 title: freshTitle || status.title,
                 poster: freshPoster,
-                category: status.category || 'tv'
+                category: status.category || (isTv(mergedMovie) ? 'tv' : 'movie')
             })
 
             await ts.set(hash, updatedStatus, mergedData)
