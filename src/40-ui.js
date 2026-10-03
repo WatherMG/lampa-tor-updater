@@ -159,9 +159,8 @@
             return
         }
 
-        try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
-
         if (probe.classification === 'incompatible') {
+            try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
             if (L && L.Noty) L.Noty.show(text(
                 'Эта раздача не содержит все серии из текущего торрента',
                 'This release does not contain all episodes from the current torrent'
@@ -170,6 +169,7 @@
         }
 
         if (probe.classification === 'unknown') {
+            try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
             if (L && L.Noty) L.Noty.show(text(
                 'Не удалось надёжно сопоставить серии в этой раздаче',
                 'Could not reliably match episodes in this release'
@@ -179,7 +179,9 @@
 
         const subtitle = probe.classification === 'new_episodes'
             ? `${probe.oldMap.size} → ${probe.newMap.size} ${text('серий', 'episodes')}`
-            : text('Та же серия эпизодов, но новая ревизия torrent', 'Same episode set, but a new torrent revision')
+            : isTv(movie)
+                ? text('Состав серий одинаковый, но это другая ревизия torrent', 'Episode set is unchanged, but this is another torrent revision')
+                : text('Новая ревизия выбранной раздачи', 'A new revision of the selected release')
         const recoveryController = activeControllerName('content')
 
         L.Select.show({
@@ -206,12 +208,7 @@
                                 legacy_recovered_at: Date.now()
                             })
 
-                            const verified = await probeCandidate(hash, movie, await ts.get(hash), candidate)
-                            if (verified.classification === 'incompatible' || verified.classification === 'unknown') {
-                                throw new Error('candidate changed during recovery')
-                            }
-
-                            await applyUpdate(hash, movie, verified, {
+                            await applyUpdate(hash, movie, probe, {
                                 manual: true,
                                 objectRef: recovery.objectRef
                             })
@@ -229,10 +226,16 @@
                 },
                 {
                     title: text('Отмена', 'Cancel'),
-                    onSelect: () => restoreController(recoveryController)
+                    onSelect: async () => {
+                        restoreController(recoveryController)
+                        try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
+                    }
                 }
             ],
-            onBack: () => restoreController(recoveryController)
+            onBack: async () => {
+                restoreController(recoveryController)
+                try { if (probe.newHash && probe.newHash !== hash) await ts.drop(probe.newHash) } catch (_) {}
+            }
         })
     }
 
@@ -283,7 +286,7 @@
             mergedData.lampa = data.lampa !== undefined ? data.lampa : true
             mergedData.movie = mergedMovie
 
-            const freshTitle = lampaMovieTitle(mergedMovie, status.title)
+            const freshTitle = metadataRefreshTitle(status, mergedMovie)
             const freshPoster = mergedMovie.poster || mergedMovie.img || status.poster || ''
 
             const updatedStatus = Object.assign({}, status, {
@@ -372,7 +375,7 @@
     }
 
     function addUpdateMenu(menu, hash, movie, files, objectRef) {
-        if (!enabled() || !hash || !movie || !isTv(movie) || !Array.isArray(menu)) return
+        if (!enabled() || !hash || !movie || !movie.id || !Array.isArray(menu)) return
         const cached = runtime.candidates.get(hash)
         const controller = (() => {
             const L = lampa()
@@ -459,7 +462,7 @@
         if (e.type === 'render' && e.element) {
             const hash = String(e.element.torrent_hash || '').toLowerCase()
             const movie = e.params && e.params.movie || e.element.card
-            if (!hash || !movie || !isTv(movie)) return
+            if (!hash || !movie || !movie.id) return
 
             runtime.listHash = hash
             if (!runtime.sessions.has(hash)) runtime.sessions.set(hash, { movie, files: e.items || [], checked: false })
