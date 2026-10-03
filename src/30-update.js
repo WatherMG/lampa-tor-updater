@@ -160,7 +160,7 @@
         const meta = {
             title: candidateTitle || (currentProbe.status && currentProbe.status.title) || oldStatus.title || '',
             poster: freshPoster || (currentProbe.status && currentProbe.status.poster) || oldStatus.poster || '',
-            category: (currentProbe.status && currentProbe.status.category) || oldStatus.category || 'tv'
+            category: (currentProbe.status && currentProbe.status.category) || oldStatus.category || (isTv(movie) ? 'tv' : 'movie')
         }
 
         await ts.add(link, meta, persist, newData)
