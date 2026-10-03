@@ -137,11 +137,76 @@
                     checked_at: Date.now(),
                     persistent: true
                 })
-                runtime.recovery = null
-                if (L && L.Noty) L.Noty.show(text('Выбрана текущая версия раздачи', 'The current torrent revision is already selected'))
-                closeRecoveryPage()
+
+                const currentTitle = cleanLampaTitle(status.title)
+                const candidateTitle = cleanLampaTitle(candidate.Title || candidate.title)
+                const recoveryController = activeControllerName('content')
+
+                if (!candidateTitle || normalizedString(currentTitle) === normalizedString(candidateTitle)) {
+                    runtime.recovery = null
+                    if (L && L.Noty) L.Noty.show(text(
+                        'Выбрана текущая версия раздачи',
+                        'The current torrent revision is already selected'
+                    ))
+                    closeRecoveryPage()
+                    return
+                }
+
+                L.Select.show({
+                    title: text('Имя раздачи отличается', 'Torrent title differs'),
+                    items: [
+                        {
+                            title: text('Обновить имя', 'Update title'),
+                            subtitle: text('Новое: ', 'New: ') + candidateTitle,
+                            onSelect: async () => {
+                                restoreController(recoveryController)
+
+                                try {
+                                    const boundStatus = await ts.get(hash)
+                                    const data = torrentData(boundStatus)
+                                    const updatedTitle = lampaTorrentTitle(candidate, boundStatus.title)
+
+                                    await ts.set(hash, Object.assign({}, boundStatus, {
+                                        title: updatedTitle
+                                    }), data)
+
+                                    if (recovery.objectRef) {
+                                        recovery.objectRef.title = cleanLampaTitle(updatedTitle)
+                                    }
+
+                                    runtime.recovery = null
+                                    if (L && L.Noty) L.Noty.show(text(
+                                        'Имя раздачи обновлено',
+                                        'Torrent title updated'
+                                    ))
+                                    closeRecoveryPage()
+                                } catch (error) {
+                                    warn('Failed to update current torrent title', error)
+                                    if (L && L.Noty) L.Noty.show(text(
+                                        'Не удалось обновить имя раздачи',
+                                        'Could not update torrent title'
+                                    ))
+                                }
+                            }
+                        },
+                        {
+                            title: text('Оставить текущее', 'Keep current title'),
+                            subtitle: text('Текущее: ', 'Current: ') + currentTitle,
+                            onSelect: () => {
+                                restoreController(recoveryController)
+                                runtime.recovery = null
+                                closeRecoveryPage()
+                            }
+                        }
+                    ],
+                    onBack: () => restoreController(recoveryController)
+                })
             } catch (error) {
-                warn('Failed to bind current release', error)
+                warn('Failed to reconcile current release', error)
+                if (L && L.Noty) L.Noty.show(text(
+                    'Не удалось сопоставить метаданные текущей раздачи',
+                    'Could not reconcile current torrent metadata'
+                ))
             }
             return
         }
@@ -418,7 +483,7 @@
 
         menu.push({
             title: text('Обновить метаданные', 'Refresh metadata'),
-            subtitle: text('Обновить название и изображение из карточки TMDB', 'Refresh title and poster from the TMDB card'),
+            subtitle: text('Обновить изображение и данные карточки TMDB', 'Refresh poster and TMDB card metadata'),
             onSelect: () => {
                 const L = lampa()
                 try { L.Controller.toggle(controller) } catch (_) {}
