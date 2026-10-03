@@ -94,8 +94,35 @@
         }
 
         const oldMap = episodeMap(movie, oldStatus.file_stats || [])
-        const newMap = episodeMap(movie, newStatus.file_stats || [])
-        const classification = compareEpisodeMaps(oldMap, newMap)
+        let newMap = episodeMap(movie, newStatus.file_stats || [])
+        let classification
+
+        if (isTv(movie)) {
+            let previousSignature = ''
+            let stableReads = 0
+            const started = Date.now()
+
+            while (Date.now() - started < 7000 && (newMap.size === 0 || stableReads < 2)) {
+                const signature = [...newMap.keys()].sort().join(',')
+                if (signature && signature === previousSignature) stableReads++
+                else stableReads = 0
+                previousSignature = signature
+
+                if (newMap.size > 0 && stableReads >= 2) break
+
+                await new Promise((resolve) => setTimeout(resolve, 900))
+                try {
+                    newStatus = await ts.get(newHash)
+                    newMap = episodeMap(movie, newStatus.file_stats || [])
+                } catch (_) {}
+            }
+
+            classification = compareEpisodeMaps(oldMap, newMap)
+        } else {
+            const oldPlayable = playableFileCount(oldStatus.file_stats || [])
+            const newPlayable = playableFileCount(newStatus.file_stats || [])
+            classification = oldPlayable > 0 && newPlayable > 0 ? 'revision' : 'unknown'
+        }
 
         return { classification, newHash, status: newStatus, candidate, oldMap, newMap, data, link }
     }
