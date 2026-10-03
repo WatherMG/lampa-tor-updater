@@ -108,3 +108,28 @@ test('TMDB card title avoids duplicate local/original name', () => {
         '[LAMPA] Dark'
     )
 })
+
+
+test('metadata refresh preserves informative release title', () => {
+    const title = api.metadataRefreshTitle(
+        { title: '[LAMPA] Severance S02 2160p WEB-DL DV | LostFilm', name: 'Severance.S02' },
+        { name: 'Разделение', original_name: 'Severance' }
+    )
+    assert.equal(title, '[LAMPA] Severance S02 2160p WEB-DL DV | LostFilm')
+})
+
+test('metadata refresh restores metainfo name after a generic title', () => {
+    const title = api.metadataRefreshTitle(
+        { title: '[LAMPA] Разделение / Severance', name: 'Severance.S02.2160p.WEB-DL.DV' },
+        { name: 'Разделение', original_name: 'Severance' }
+    )
+    assert.equal(title, '[LAMPA] Severance.S02.2160p.WEB-DL.DV')
+})
+
+test('playable file count ignores non-video files', () => {
+    assert.equal(api.playableFileCount([
+        { path: 'movie.mkv' },
+        { path: 'cover.jpg' },
+        { path: 'sample.mp4' }
+    ]), 2)
+})
